@@ -21,6 +21,7 @@ import imp
 import cvpinns
 imp.reload(cvpinns)
 
+tf.debugging.enable_check_numerics()
 
 #analytical solution, 1 rarefaction, 3 shock
 def sod(xt:np.ndarray,Ul:List[float],Ur:List[float],gamma:float=1.4):
@@ -47,7 +48,7 @@ def sod(xt:np.ndarray,Ul:List[float],Ur:List[float],gamma:float=1.4):
     cr = np.sqrt(gamma*pr/rhor) # c = sqrt(dP/drho)
 
     def phil(p:float):
-        """_summary_
+        """Equation 14.54 from Finite Volume Methods for Hyperbolic equations
 
         Args:
             p (float): Pressure
@@ -63,7 +64,7 @@ def sod(xt:np.ndarray,Ul:List[float],Ur:List[float],gamma:float=1.4):
         return u
 
     def phir(p:float):
-        """_summary_
+        """Equation 14.55 from Finite Volume Methods for Hyperbolic equations
 
         Args:
             p (float): Pressure
@@ -193,45 +194,72 @@ EOS2 = tf.keras.Sequential(
 EOS = lambda u: EOS2(u) + tf.expand_dims(u[...,1],-1)
 EOS.variables = EOS2.variables
 
-#extracts (rho,e) from u
-@tf.function
-def getrhoe(uxi):
+#
+# @tf.function
+def getrhoe(uxi:tf.Tensor):
+    """extracts (rho,e) from u
+        E = rho(e + 1/2u^2)
+        E/rho - 1/2u^2 = e
+
+    Args:
+        uxi (tf.Tensor): [Batch_size,1,3] rho, rhou, E
+
+    Returns:
+        tf.Tensor: [batch_size, rho, rhoe] 
+    """
+
     return tf.stack([uxi[...,0],tf.math.divide_no_nan(uxi[...,2],uxi[...,0])
-                     - 0.5*tf.math.divide_no_nan(uxi[...,1],uxi[...,0])**2],-1)
+                     - 0.5*tf.math.divide_no_nan(uxi[...,1],uxi[...,0])**2],-1) # e = E/rho - 1/2u^2
 
 #computes pressure via EOS
-@tf.function
-def getp(rhoe):
+# @tf.function
+def getp(rhoe:tf.Tensor):
+    """Returns Pressure from tensor containing rhoe
+
+    Args:
+        rhoe (tf.Tensor): [batch_size, rho, e]
+
+    Returns:
+        tf.Tensor: 
+    """
     with tf.GradientTape() as g:
         g.watch(rhoe)
-        s = EOS(rhoe)
-        ss = tf.reduce_sum(s)
+        s = EOS(rhoe) # This neural network outputs entropy
+        ss = tf.reduce_sum(s) # Total entropy of the system
 
-    J = g.gradient(ss,rhoe)
-    p = -rhoe[...,0]**2*tf.math.divide_no_nan(J[...,0],J[...,1])
+    J = g.gradient(ss,rhoe) # [dss/drho, dss/dE]
+    p = -rhoe[...,0]**2*tf.math.divide_no_nan(J[...,0],J[...,1])  # Gibbs Relation P = -rho^2 * (ds/drho) / (ds/de)
     return p
 
 #PDE for euler equations
 
 #initial condition
-@tf.function
+# @tf.function
 def IC(x):
     return tf.expand_dims(tf.cast(x[...,1]< 0,tf.float64),-1)*Ul \
           +tf.expand_dims(tf.cast(x[...,1]>=0,tf.float64),-1)*Ur
 
 #left boundary condition
-@tf.function
+# @tf.function
 def BCl(x):
     return tf.ones(x.shape[0:-1]+[1],tf.float64)*Ul
 
 #right boundary condition
-@tf.function
+# @tf.function
 def BCr(x):
     return tf.ones(x.shape[0:-1]+[1],tf.float64)*Ur
 
 #flux in x direction
-@tf.function
-def F1(ux):
+# @tf.function
+def F1(ux:tf.Tensor):
+    """Gets Flux F1 in the x direction. Flux is rhoE 
+
+    Args:
+        ux (tf.Tensor): [batch_size, 1, 3] rho, rhou, E
+
+    Returns:
+        _type_: _description_
+    """
     p = getp(getrhoe(ux))
     return tf.stack([
                 ux[...,1],
@@ -260,7 +288,7 @@ def Q1(ux):
 euler_ent = cvpinns.PDE(L,nx,quad,Q0,Q1,IC,BCl,BCr,u)
 
 #total variation dimishing penalty
-@tf.function
+# @tf.function
 def getTVDp():
     ux = euler.u(euler.x)
     TV = tf.reduce_sum(euler.dx[1]*tf.abs(ux[:,1::]-ux[:,0:-1]),1)
@@ -269,7 +297,7 @@ def getTVDp():
 
 #thermodynamics penalty
 rhoe_thermp = tf.transpose(np.mgrid[0.5:3.5:100j,1.5:3.5:100j],(1,2,0))
-@tf.function
+# @tf.function
 def getThermop():
     with tf.GradientTape(persistent=True) as g2:
         g2.watch(rhoe_thermp)
@@ -287,7 +315,7 @@ def getThermop():
                           + tf.nn.relu(d2sd2e)**2 + tf.nn.relu(-dsde)**2)
 
 #combines loss terms
-@tf.function
+# @tf.function
 def getLoss():
     return (
                 tf.reduce_sum(euler.getRES()**2)
@@ -306,7 +334,7 @@ def train(lr,iters):
     varlist = u.variables + EOS.variables
 
     #training function
-    @tf.function
+    # @tf.function
     def GD():
         with tf.GradientTape() as g:
             loss = getLoss()
@@ -368,6 +396,12 @@ def getFD():
 ufd = getFD()
 
 #compare solution from learned EOS to data
+import pickle
+with open('saved_files.pickle','w') as f:
+    pickle.dump({"xdata":x_data,
+                "udata":u_data,
+                "xfd":xfd,
+                "ufd":ufd},f,pickle.HIGHEST_PROTOCOL)
 
 fig,ax = plt.subplots(3,figsize=(6,10),sharex=True)
 ax[0].plot(x_data[-1,:,1],u_data[-1,:,0])

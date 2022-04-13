@@ -99,7 +99,7 @@ class PDE:
 
 
     
-    @tf.function
+    # @tf.function
     def getRES(self):
         """
         Outputs:
