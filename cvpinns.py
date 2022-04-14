@@ -40,12 +40,12 @@ class PDE:
 
 
 
-        x0 = np.linspace(L[0][0],L[0][1],nx[0]+1)
-        x1 = np.linspace(L[1][0],L[1][1],nx[1]+1)
+        x0 = np.linspace(L[0][0],L[0][1],nx[0]+1) # Time
+        x1 = np.linspace(L[1][0],L[1][1],nx[1]+1) # Spatial - x 
 
-        x0c = (x0[0:-1]+x0[1:])/2
-        x1c = (x1[0:-1]+x1[1:])/2
-        xc = np.transpose(np.meshgrid(x0c,x1c,indexing='ij'),(1,2,0))
+        x0c = (x0[0:-1]+x0[1:])/2 # Center location for time (not dt)
+        x1c = (x1[0:-1]+x1[1:])/2 # center location for x (not dx)
+        xc = np.transpose(np.meshgrid(x0c,x1c,indexing='ij'),(1,2,0)) # t_1/2 and x_1/2 as meshgrid
 
 
         dx = xc[1,1] - xc[0,0]

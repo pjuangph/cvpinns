@@ -168,7 +168,7 @@ quad = {'0':(xi,wi),'1':(xi,wi)}
 width = 64
 depth = 8
 dimi = 2
-dimo = 3
+dimo = 3 # rho, rhou, E ( I assume )
 act = tf.nn.relu
 u = tf.keras.Sequential(
                  [tf.keras.layers.Dense(width,activation=act,
@@ -274,12 +274,12 @@ euler = cvpinns.PDE(L,nx,quad,F0,F1,IC,BCl,BCr,u)
 
 #PDIE for entropy inequality
 
-@tf.function
+# @tf.function
 def Q0(ux):
     s = EOS(getrhoe(ux))
     return -tf.expand_dims(ux[...,0],-1)*s
 
-@tf.function
+# @tf.function
 def Q1(ux):
     s = EOS(getrhoe(ux))
     return -tf.expand_dims(ux[...,1],-1)*s
